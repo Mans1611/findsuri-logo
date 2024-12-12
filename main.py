@@ -1,68 +1,65 @@
 import streamlit as st
 from PIL import Image
 import io
-import os 
-import base64
+import os
 import numpy as np
 from deepface import DeepFace
-import requests
-logo_path = os.path.join(os.getcwd(),"logo.png")
+
+logo_path = os.path.join(os.getcwd(), "logo.png")
 
 def process_image(image):
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-    
-    # Use DeepFace to detect faces
-    detected_faces = DeepFace.extract_faces(np.array(image), detector_backend='mtcnn', enforce_detection=False)
+    try:
+        # Convert image to RGB if not already
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
 
-    facial_area = detected_faces[0]['facial_area']
-    x, y, w, h = facial_area['x'], facial_area['y'], facial_area['w'], facial_area['h']
-    
-    # Calculate expansion
-    expand_w = w // 4
-    expand_h = h // 4  
+        # Attempt face extraction
+        detected_faces = DeepFace.extract_faces(np.array(image), detector_backend='mtcnn', enforce_detection=False)
+        
+        if not detected_faces:
+            st.warning("No faces detected in the image. Showing original image.")
+            return image
 
-    # New coordinates
-    new_x = max(0, x - expand_w)  
-    new_y = max(0, y - expand_h)  
-    new_w = w + (2 * expand_w)
-    new_h = h + (2 * expand_h)
+        # Take the first detected face (assuming a single main face)
+        facial_area = detected_faces[0]['facial_area']
+        x, y, w, h = facial_area['x'], facial_area['y'], facial_area['w'], facial_area['h']
 
-    # Crop the expanded region
-    expanded_face = np.array(image)[new_y:new_y + new_h, new_x:new_x + new_w]
-    
-    # Convert to PIL Image for processing
-    expanded_face_image = Image.fromarray(expanded_face)
+        # Expand the face region slightly
+        expand_w = w // 4
+        expand_h = h // 4
 
-    # Load the logo image
-    logo = Image.open(logo_path)
-    logo = logo.convert("RGBA")  # Ensure logo has an alpha channel
+        new_x = max(0, x - expand_w)
+        new_y = max(0, y - expand_h)
+        new_w = w + (2 * expand_w)
+        new_h = h + (2 * expand_h)
 
-    # Resize the logo to be smaller
-    logo_width = int(expanded_face_image.width)
-    logo_height = int(expanded_face_image.height)
-    logo = logo.resize((logo_width, logo_height), int(Image.Resampling.LANCZOS))
+        # Extract the expanded face area
+        expanded_face = np.array(image)[new_y:new_y + new_h, new_x:new_x + new_w]
+        expanded_face_image = Image.fromarray(expanded_face)
 
-    # Paste the logo as a watermark (bottom-right corner)
-    x_offset = int(expanded_face_image.width  / 2) - logo_width - 10  # 10px padding from the edge
-    y_offset = int(expanded_face_image.height / 2) - logo_height - 10
-    expanded_face_image.paste(logo, (0, 0), logo)
+        # Overlay the logo
+        logo = Image.open(logo_path).convert("RGBA")
+        logo = logo.resize((expanded_face_image.width, expanded_face_image.height), Image.Resampling.LANCZOS)
+        expanded_face_image.paste(logo, (0, 0), logo)
 
-   
-   
-    return expanded_face_image
+        return expanded_face_image
 
-# Streamlit App
+    except Exception as e:
+        st.error(f"An error occurred during face processing: {e}")
+        return image
+
 st.title("Image Processing Interface")
 
-# Upload Image
 uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # Open the uploaded image
     image = Image.open(uploaded_file)
 
-    # Display the original image
+    # Resize the image if it's too large (e.g., max width or height of 2000px)
+    max_dimension = 2000
+    if max(image.size) > max_dimension:
+        image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+
     st.subheader("Original Image")
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
